@@ -17,6 +17,7 @@
   let sidebarLoading = true;
   let pageLoading = false;
   let activePageRequest = '';
+  let readOnly = true;
 
   onMount(() => {
     void loadSidebar();
@@ -42,6 +43,10 @@
     if (node.kind !== 'page') return;
     selectedPage = node;
     void loadPage(node);
+  }
+
+  function setReadOnly(value: boolean): void {
+    readOnly = value;
   }
 
   async function loadPage(node: TreeNode): Promise<void> {
@@ -119,7 +124,7 @@
 </script>
 
 <main class="app-shell">
-  <Sidebar {roots} {trees} selected={selectedPage} onSelect={selectPage} onCreatePage={createPage} onCreateFolder={createFolder} onMoveNode={moveNode} onDeleteNode={deleteNode} />
+  <Sidebar {roots} {trees} selected={selectedPage} onSelect={selectPage} onCreatePage={createPage} onCreateFolder={createFolder} onMoveNode={moveNode} onDeleteNode={deleteNode} {readOnly} onReadOnlyChange={setReadOnly} />
 
   <section class="workspace" aria-label="Workspace">
     {#if sidebarLoading}
@@ -130,6 +135,6 @@
       <p role="alert">{sidebarError}</p>
     {/if}
 
-    <PageShell selectedPage={selectedPage} document={pageDocument} loading={pageLoading} error={pageError} />
+    <PageShell selectedPage={selectedPage} document={pageDocument} loading={pageLoading} error={pageError} {readOnly} />
   </section>
 </main>

@@ -104,6 +104,13 @@ async function mockVaultApi(page: Page, options: MockVaultApiOptions = {}) {
   });
 }
 
+async function enablePageEdits(page: Page): Promise<void> {
+  const readOnlyToggle = page.getByRole('checkbox', { name: 'Read only' });
+  await expect(readOnlyToggle).toBeChecked();
+  await readOnlyToggle.uncheck();
+  await expect(readOnlyToggle).not.toBeChecked();
+}
+
 test('loads the Zelium shell', async ({ page }) => {
   await mockVaultApi(page);
   await page.goto('/');
@@ -139,6 +146,48 @@ test('loads the selected page with a filename-derived title and markdown body', 
   await expect(page.getByLabel('Markdown editor')).toContainText('Home body');
 });
 
+test('prevents page edits while read-only is checked by default', async ({ page }) => {
+  const saveCalls: SavePageRequest[] = [];
+  await mockVaultApi(page, {
+    savePage: async (payload) => {
+      saveCalls.push(payload);
+      return { json: { ...payload, markdown: payload.body, etag: 'W/"should-not-save"' } };
+    },
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('checkbox', { name: 'Read only' })).toBeChecked();
+  await page.getByRole('button', { name: 'INDEX.md' }).click();
+
+  const editor = page.getByLabel('Markdown editor');
+  await expect(editor).toHaveAttribute('contenteditable', 'false');
+  await editor.click();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Blocked body edit');
+  await expect(editor).toContainText('Home body');
+  await expect(editor).not.toContainText('Blocked body edit');
+
+  await page.getByRole('button', { name: /frontmatter/i }).click();
+  const frontmatter = page.getByLabel('YAML frontmatter');
+  await expect(frontmatter).toBeDisabled();
+  await expect(frontmatter).toHaveValue('title: Home');
+  await page.waitForTimeout(700);
+  expect(saveCalls).toHaveLength(0);
+});
+
+test('resets read-only state after a page reload', async ({ page }) => {
+  await mockVaultApi(page);
+
+  await page.goto('/');
+  const readOnlyToggle = page.getByRole('checkbox', { name: 'Read only' });
+  await expect(readOnlyToggle).toBeChecked();
+  await readOnlyToggle.uncheck();
+  await expect(readOnlyToggle).not.toBeChecked();
+
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: 'Read only' })).toBeChecked();
+});
+
 test('renders existing markdown as inline document structure without raw markers', async ({ page }) => {
   await mockVaultApi(page);
 
@@ -154,6 +203,7 @@ test('converts markdown shortcuts to inline headings and lists while typing', as
   await mockVaultApi(page);
 
   await page.goto('/');
+  await enablePageEdits(page);
   await page.getByRole('button', { name: 'INDEX.md' }).click();
 
   const editor = page.getByLabel('Markdown editor');
@@ -200,6 +250,7 @@ test('autosaves body edits with visible save states and updated etag', async ({ 
   });
 
   await page.goto('/');
+  await enablePageEdits(page);
   await page.getByRole('button', { name: 'INDEX.md' }).click();
   await expect(page.getByText('Saved')).toBeVisible();
 
@@ -238,6 +289,7 @@ test('invalid frontmatter prevents autosave and shows invalid save state', async
   });
 
   await page.goto('/');
+  await enablePageEdits(page);
   await page.getByRole('button', { name: 'INDEX.md' }).click();
   await page.getByRole('button', { name: /frontmatter/i }).click();
 
@@ -259,6 +311,7 @@ test('etag conflicts show conflict state and stop further overwrite attempts', a
   });
 
   await page.goto('/');
+  await enablePageEdits(page);
   await page.getByRole('button', { name: 'INDEX.md' }).click();
 
   const editor = page.getByLabel('Markdown editor');
@@ -280,6 +333,7 @@ test('renders collapsed editable frontmatter and validates pending edits', async
   await mockVaultApi(page);
 
   await page.goto('/');
+  await enablePageEdits(page);
   await page.getByRole('button', { name: 'INDEX.md' }).click();
   await expect(page.getByRole('heading', { name: 'INDEX', level: 2 })).toBeVisible();
 

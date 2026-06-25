@@ -2,6 +2,7 @@
   import { validateFrontmatter } from '../lib/editor/frontmatter';
 
   export let value = '';
+  export let readOnly = false;
   export let onValidChange: (value: string) => void = () => {};
   export let onValidityChange: (valid: boolean) => void = () => {};
 
@@ -22,6 +23,8 @@
   }
 
   function updateDraft(event: Event): void {
+    if (readOnly) return;
+
     draft = (event.currentTarget as HTMLTextAreaElement).value;
     const validation = validateFrontmatter(draft);
 
@@ -45,7 +48,7 @@
 
   {#if expanded}
     <div class="frontmatter-editor">
-      <textarea id="frontmatter-editor" aria-label="YAML frontmatter" spellcheck="false" value={draft} on:input={updateDraft}></textarea>
+      <textarea id="frontmatter-editor" aria-label="YAML frontmatter" spellcheck="false" value={draft} disabled={readOnly} on:input={updateDraft}></textarea>
       {#if validationError}
         <p class="frontmatter-error" role="alert">{validationError}</p>
       {/if}

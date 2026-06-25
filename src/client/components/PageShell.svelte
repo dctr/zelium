@@ -11,6 +11,7 @@
   export let document: PageDocument | null = null;
   export let loading = false;
   export let error = '';
+  export let readOnly = true;
 
   let loadedDocumentKey = '';
   let pendingFrontmatter = '';
@@ -55,16 +56,22 @@
   }
 
   function updateBody(markdown: string): void {
+    if (readOnly) return;
+
     pendingBody = markdown;
     autosave?.update({ body: markdown });
   }
 
   function updateFrontmatter(value: string): void {
+    if (readOnly) return;
+
     pendingFrontmatter = value;
     autosave?.update({ frontmatter: value, frontmatterValid });
   }
 
   function updateFrontmatterValidity(valid: boolean): void {
+    if (readOnly) return;
+
     frontmatterValid = valid;
     autosave?.update({ frontmatterValid: valid });
   }
@@ -102,6 +109,7 @@
       <h2>{titleFromPath(document.path)}</h2>
       <FrontmatterBlock
         value={pendingFrontmatter}
+        {readOnly}
         onValidChange={updateFrontmatter}
         onValidityChange={updateFrontmatterValidity}
       />
@@ -109,7 +117,7 @@
         <p class="save-state" role={autosaveSnapshot.state === 'conflict' ? 'alert' : 'status'} aria-live="polite">{saveStateText}</p>
       </div>
       {#key loadedDocumentKey}
-        <MarkdownEditor value={pendingBody} onChange={updateBody} />
+        <MarkdownEditor value={pendingBody} onChange={updateBody} {readOnly} />
       {/key}
     </article>
   {:else}

@@ -12,6 +12,8 @@
   export let onCreateFolder: (rootId: string, path: string) => Promise<void> | void = () => {};
   export let onMoveNode: (rootId: string, fromPath: string, toPath: string, kind: NodeKind) => Promise<void> | void = () => {};
   export let onDeleteNode: (rootId: string, path: string, kind: NodeKind) => Promise<void> | void = () => {};
+  export let readOnly = true;
+  export let onReadOnlyChange: (readOnly: boolean) => void = () => {};
 
   let expanded = new Set<string>();
 
@@ -25,6 +27,10 @@
     if (next.has(key)) next.delete(key);
     else next.add(key);
     expanded = next;
+  }
+
+  function updateReadOnly(event: Event): void {
+    onReadOnlyChange((event.currentTarget as HTMLInputElement).checked);
   }
 </script>
 
@@ -55,6 +61,10 @@
 
 <aside class="sidebar" aria-label="Vaults">
   <h1>Zelium</h1>
+  <label class="read-only-toggle">
+    <input type="checkbox" checked={readOnly} on:change={updateReadOnly} />
+    <span>Read only</span>
+  </label>
   {#if roots.length === 0}
     <p class="muted">No vaults loaded.</p>
   {:else}
