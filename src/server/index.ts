@@ -47,7 +47,8 @@ async function sendStaticAsset(root: string, pathname: string, accept: string | 
 
   const file = await readStaticFile(asset.path);
   if (file.ok) {
-    return reply.type(contentTypeFor(asset.path)).send(file.body);
+    const contentType = contentTypeFor(asset.path);
+    return reply.type(contentType).send(serializeStaticBody(file.body, contentType));
   }
 
   if (file.notFound && shouldServeIndexFallback(pathname, accept)) {
@@ -119,6 +120,19 @@ function isNotFoundLikeError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && ['ENOENT', 'ENOTDIR', 'EISDIR'].includes(String(error.code));
 }
 
+function serializeStaticBody(body: Buffer, contentType: string): Buffer | string {
+  return isTextStaticType(contentType) ? body.toString('utf8') : body;
+}
+
+function isTextStaticType(contentType: string): boolean {
+  return (
+    contentType.startsWith('text/') ||
+    contentType.includes('json') ||
+    contentType.includes('javascript') ||
+    contentType.includes('svg+xml')
+  );
+}
+
 function contentTypeFor(filePath: string): string {
   switch (path.extname(filePath).toLowerCase()) {
     case '.html':
@@ -130,6 +144,8 @@ function contentTypeFor(filePath: string): string {
       return 'text/css; charset=utf-8';
     case '.json':
       return 'application/json; charset=utf-8';
+    case '.webmanifest':
+      return 'application/manifest+json; charset=utf-8';
     case '.svg':
       return 'image/svg+xml';
     case '.ico':

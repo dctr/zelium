@@ -15,6 +15,7 @@ const trees = {
       children: [{ rootId: 'root-1', path: 'folder/deep.md', name: 'deep.md', kind: 'page' }],
     },
     { rootId: 'root-1', path: 'broken.md', name: 'broken.md', kind: 'page' },
+    { rootId: 'root-1', path: 'long-content.md', name: 'long-content.md', kind: 'page' },
     { rootId: 'root-1', path: 'INDEX.md', name: 'INDEX.md', kind: 'page' },
   ],
   'root-2': [{ rootId: 'root-2', path: 'note.md', name: 'note.md', kind: 'page' }],
@@ -36,6 +37,16 @@ const pages = {
     frontmatter: '',
     body: '# Deep',
     etag: 'W/"2-2"',
+  },
+  'root-1:long-content.md': {
+    rootId: 'root-1',
+    path: 'long-content.md',
+    markdown:
+      '# Long content\n\n![wide preview](data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221200%22%20height=%22120%22%3E%3C/svg%3E)\n\n| Identifier | Notes |\n| --- | --- |\n| a-very-long-unbroken-token-that-should-wrap-instead-of-forcing-horizontal-scroll-on-a-phone-viewport | still editable |',
+    frontmatter: '',
+    body:
+      '# Long content\n\n![wide preview](data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221200%22%20height=%22120%22%3E%3C/svg%3E)\n\n| Identifier | Notes |\n| --- | --- |\n| a-very-long-unbroken-token-that-should-wrap-instead-of-forcing-horizontal-scroll-on-a-phone-viewport | still editable |',
+    etag: 'W/"4-4"',
   },
   'root-2:note.md': {
     rootId: 'root-2',
@@ -59,6 +70,13 @@ type MockVaultApiOptions = {
   beforePageResponse?: (rootId: string, path: string) => Promise<void>;
   pageErrors?: Record<string, string>;
   savePage?: (payload: SavePageRequest) => Promise<{ status?: number; json: unknown }>;
+};
+
+type ThemeSample = {
+  name: string;
+  foreground: string;
+  background: string;
+  minimumContrast: number;
 };
 
 async function mockVaultApi(page: Page, options: MockVaultApiOptions = {}) {
@@ -111,10 +129,143 @@ async function enablePageEdits(page: Page): Promise<void> {
   await expect(readOnlyToggle).not.toBeChecked();
 }
 
+function parseRgb(value: string): [number, number, number] {
+  const channels = value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number);
+  if (!channels || channels.length !== 3) throw new Error(`Expected rgb() color, received ${value}`);
+  return channels as [number, number, number];
+}
+
+function luminance(value: string): number {
+  const [red, green, blue] = parseRgb(value).map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = luminance(foreground);
+  const backgroundLuminance = luminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function expectLegibleColors(samples: ThemeSample[]): void {
+  for (const sample of samples) {
+    expect(contrastRatio(sample.foreground, sample.background), sample.name).toBeGreaterThanOrEqual(sample.minimumContrast);
+  }
+}
+
 test('loads the Zelium shell', async ({ page }) => {
   await mockVaultApi(page);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Zelium' })).toBeVisible();
+});
+
+test('adapts the shell for a phone viewport without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockVaultApi(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'INDEX.md' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Zelium' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'INDEX', level: 2 })).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const shell = document.querySelector('.app-shell')!;
+    const sidebar = document.querySelector('.sidebar')!;
+    return {
+      columns: getComputedStyle(shell).gridTemplateColumns,
+      sidebarBorderBottom: getComputedStyle(sidebar).borderBottomWidth,
+      horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+    };
+  });
+
+  expect(layout.columns.trim().split(' ')).toHaveLength(1);
+  expect(layout.sidebarBorderBottom).not.toBe('0px');
+  expect(layout.horizontalOverflow).toBe(false);
+});
+
+test('wraps wide editor content instead of overflowing on a phone viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockVaultApi(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'long-content.md' }).click();
+  await expect(page.getByLabel('Markdown editor')).toContainText('a-very-long-unbroken-token');
+  await expect(page.getByLabel('Markdown editor').getByRole('img', { name: 'wide preview' })).toBeVisible();
+
+  const viewportWidth = page.viewportSize()!.width;
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewportWidth);
+  await expect.poll(() => page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(viewportWidth);
+});
+
+test('keeps system light and dark themes legible', async ({ page }) => {
+  await mockVaultApi(page);
+
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'INDEX.md' }).click();
+    await expect(page.getByLabel('Markdown editor')).toBeVisible();
+    await page.getByRole('button', { name: /frontmatter/i }).click();
+
+    const theme = await page.evaluate(() => {
+      const stylesFor = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+      const root = stylesFor('html');
+      const saveState = stylesFor('.save-state');
+      const sidebar = stylesFor('.sidebar');
+      const treeNode = stylesFor('.tree-node');
+      const selectedTreeNode = stylesFor('.tree-node[aria-current="page"]');
+      const frontmatterBlock = stylesFor('.frontmatter-block');
+      const frontmatterDisclosure = stylesFor('.frontmatter-disclosure');
+      const frontmatterTextarea = stylesFor('.frontmatter-editor textarea');
+      const markdownEditor = stylesFor('.markdown-editor .milkdown');
+
+      return {
+        colorScheme: root.colorScheme,
+        samples: [
+          { name: 'document text', foreground: root.color, background: root.backgroundColor, minimumContrast: 4.5 },
+          { name: 'save state text', foreground: saveState.color, background: root.backgroundColor, minimumContrast: 4.5 },
+          { name: 'sidebar border', foreground: sidebar.borderRightColor, background: sidebar.backgroundColor, minimumContrast: 1.5 },
+          { name: 'tree button text', foreground: treeNode.color, background: sidebar.backgroundColor, minimumContrast: 4.5 },
+          { name: 'selected tree button text', foreground: selectedTreeNode.color, background: selectedTreeNode.backgroundColor, minimumContrast: 4.5 },
+          { name: 'frontmatter button text', foreground: frontmatterDisclosure.color, background: frontmatterBlock.backgroundColor, minimumContrast: 4.5 },
+          { name: 'frontmatter editor text', foreground: frontmatterTextarea.color, background: frontmatterTextarea.backgroundColor, minimumContrast: 4.5 },
+          { name: 'frontmatter editor border', foreground: frontmatterTextarea.borderTopColor, background: frontmatterTextarea.backgroundColor, minimumContrast: 1.5 },
+          { name: 'markdown editor text', foreground: markdownEditor.color, background: markdownEditor.backgroundColor, minimumContrast: 4.5 },
+          { name: 'markdown editor border', foreground: markdownEditor.borderTopColor, background: markdownEditor.backgroundColor, minimumContrast: 1.5 },
+        ],
+      };
+    });
+
+    expect(theme.colorScheme).toContain(colorScheme);
+    expectLegibleColors(theme.samples);
+  }
+});
+
+test('exposes PWA install metadata and registers the service worker', async ({ page }) => {
+  await mockVaultApi(page);
+
+  await page.goto('/');
+
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/icons/icon-192.png');
+
+  const manifestResponse = await page.request.get('/manifest.webmanifest');
+  expect(manifestResponse.status()).toBe(200);
+  const manifest = await manifestResponse.json();
+  expect(manifest).toMatchObject({ name: 'Zelium', display: 'standalone', start_url: '/' });
+  expect(manifest.icons).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ sizes: '192x192', type: 'image/png' }),
+      expect.objectContaining({ sizes: '512x512', type: 'image/png' }),
+    ]),
+  );
+
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.getRegistration('/').then(Boolean))).toBe(true);
 });
 
 test('renders configured vault roots, expands folders, and selects pages', async ({ page }) => {

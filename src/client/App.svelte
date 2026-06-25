@@ -6,8 +6,6 @@
   import { ApiError, vaultApi } from './lib/api';
   import type { PageDocument, TreeNode, VaultRoot } from './lib/types';
 
-  type NodeKind = 'folder' | 'page';
-
   let roots: VaultRoot[] = [];
   let trees: Record<string, TreeNode[]> = {};
   let selectedPage: TreeNode | null = null;
@@ -66,65 +64,10 @@
     }
   }
 
-  async function createPage(rootId: string, path: string): Promise<void> {
-    const created = await vaultApi.createPage({ rootId, path });
-    const node = pageNode(rootId, path);
-    selectedPage = node;
-    pageDocument = created;
-    pageError = '';
-    pageLoading = false;
-    await loadSidebar();
-  }
-
-  async function createFolder(rootId: string, path: string): Promise<void> {
-    await vaultApi.createFolder({ rootId, path });
-    await loadSidebar();
-  }
-
-  async function moveNode(rootId: string, fromPath: string, toPath: string, kind: NodeKind): Promise<void> {
-    const moved = await vaultApi.moveNode({ rootId, fromPath, toPath, kind });
-    const nextSelected = selectedAfterMove(rootId, fromPath, toPath, kind, moved);
-    await loadSidebar();
-    if (nextSelected) {
-      selectedPage = nextSelected;
-      await loadPage(nextSelected);
-    }
-  }
-
-  async function deleteNode(rootId: string, path: string, kind: NodeKind): Promise<void> {
-    await vaultApi.deleteNode({ rootId, path, kind });
-    if (selectedPage && selectedPage.rootId === rootId && pathContains(kind, path, selectedPage.path)) {
-      selectedPage = null;
-      pageDocument = null;
-      pageError = '';
-      pageLoading = false;
-    }
-    await loadSidebar();
-  }
-
-  function selectedAfterMove(rootId: string, fromPath: string, toPath: string, kind: NodeKind, moved: TreeNode): TreeNode | null {
-    if (!selectedPage || selectedPage.rootId !== rootId || !pathContains(kind, fromPath, selectedPage.path)) return null;
-    if (kind === 'page') return moved;
-    const suffix = selectedPage.path.slice(fromPath.length);
-    return pageNode(rootId, `${toPath}${suffix}`);
-  }
-
-  function pathContains(kind: NodeKind, containerPath: string, candidatePath: string): boolean {
-    if (kind === 'page') return candidatePath === containerPath;
-    return candidatePath === containerPath || candidatePath.startsWith(`${containerPath}/`);
-  }
-
-  function pageNode(rootId: string, path: string): TreeNode {
-    return { rootId, path, name: basename(path), kind: 'page' };
-  }
-
-  function basename(path: string): string {
-    return path.split('/').pop() ?? path;
-  }
 </script>
 
 <main class="app-shell">
-  <Sidebar {roots} {trees} selected={selectedPage} onSelect={selectPage} onCreatePage={createPage} onCreateFolder={createFolder} onMoveNode={moveNode} onDeleteNode={deleteNode} {readOnly} onReadOnlyChange={setReadOnly} />
+  <Sidebar {roots} {trees} selected={selectedPage} onSelect={selectPage} {readOnly} onReadOnlyChange={setReadOnly} />
 
   <section class="workspace" aria-label="Workspace">
     {#if sidebarLoading}

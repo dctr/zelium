@@ -14,9 +14,11 @@ async function makeStaticDir(): Promise<string> {
   await mkdir(path.join(dir, 'assets'), { recursive: true });
   await writeFile(
     path.join(dir, 'index.html'),
-    '<!doctype html><title>Zelium</title><main id="app">Zelium shell</main><script type="module" src="/assets/app.js"></script>',
+    '<!doctype html><title>Zelium</title><link rel="manifest" href="/manifest.webmanifest"><main id="app">Zelium shell</main><script type="module" src="/assets/app.js"></script>',
   );
   await writeFile(path.join(dir, 'assets', 'app.js'), 'window.__zeliumLoaded = true;');
+  await writeFile(path.join(dir, 'manifest.webmanifest'), '{"name":"Zelium","display":"standalone"}');
+  await writeFile(path.join(dir, 'sw.js'), 'self.addEventListener("fetch", () => {});');
   return dir;
 }
 
@@ -53,6 +55,22 @@ describe('production static serving', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/javascript');
     expect(response.body).toContain('__zeliumLoaded');
+
+    await app.close();
+  });
+
+  it('serves PWA manifest and service worker assets with installable content types', async () => {
+    const app = await createServerWithStatic();
+
+    const manifest = await app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+    const serviceWorker = await app.inject({ method: 'GET', url: '/sw.js' });
+
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.headers['content-type']).toContain('application/manifest+json');
+    expect(JSON.parse(manifest.body)).toMatchObject({ name: 'Zelium', display: 'standalone' });
+    expect(serviceWorker.statusCode).toBe(200);
+    expect(serviceWorker.headers['content-type']).toContain('text/javascript');
+    expect(serviceWorker.body).toContain('fetch');
 
     await app.close();
   });
